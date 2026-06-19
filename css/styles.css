@@ -294,7 +294,7 @@ opacity: 0;
     margin-left: 7vw;
     bottom: 92px;
   }
-  .hero-slide h1 { font-size: clamp(42px, 13vw, 58px); line-height: 1.05; }
+  .hero-slide h1 { font-size: clamp(31px, 9.75vw, 44px); line-height: 1.05; }
   .hero-description { font-size: 13px; margin-bottom: 34px; }
   .hero-actions { gap: 12px; }
   .btn { width: 100%; height: 44px; }
@@ -463,7 +463,7 @@ opacity: 0;
   }
 
   .about-copy h2 {
-    font-size: clamp(30px, 9vw, 40px);
+    font-size: clamp(25px, 7.65vw, 34px);
   }
 
   .about-text p {
@@ -659,7 +659,7 @@ opacity: 0;
 
 @media (max-width: 560px) {
   .solutions-intro h2 {
-    font-size: clamp(32px, 10vw, 42px);
+    font-size: clamp(27px, 8.5vw, 36px);
   }
 
   .solutions-intro p {
@@ -770,22 +770,35 @@ main {
 }
 
 
-/* Mobile Typography Refinement */
-@media (max-width: 768px) {
 
-  .hero-content h1 {
-    transform: scale(0.75);
-    transform-origin: left center;
+
+
+/* Mobile Typography Real Sizes */
+@media (max-width: 760px) {
+  .hero-slide h1 {
+    font-size: clamp(31px, 9.75vw, 44px);
+    line-height: 1.05;
   }
 
   .about-copy h2 {
-    transform: scale(0.85);
-    transform-origin: left center;
+    font-size: clamp(25px, 7.65vw, 34px);
   }
+}
 
+@media (max-width: 560px) {
   .solutions-intro h2 {
-    transform: scale(0.85);
-    transform-origin: center top;
+    font-size: clamp(27px, 8.5vw, 36px);
   }
+}
 
+
+/* Justified Editorial Copy */
+.about-text p,
+.solutions-intro p,
+.solution-card__content p,
+.section-description,
+.block-description,
+.editorial-description {
+  text-align: justify;
+  text-align-last: left;
 }
