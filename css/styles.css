@@ -768,3 +768,24 @@ main {
 .hero-title{
   text-wrap: balance;
 }
+
+
+/* Mobile Typography Refinement */
+@media (max-width: 768px) {
+
+  .hero-content h1 {
+    transform: scale(0.75);
+    transform-origin: left center;
+  }
+
+  .about-copy h2 {
+    transform: scale(0.85);
+    transform-origin: left center;
+  }
+
+  .solutions-intro h2 {
+    transform: scale(0.85);
+    transform-origin: center top;
+  }
+
+}
