@@ -289,9 +289,11 @@ function openBrandModal(key, trigger) {
 
 function closeBrandModal() {
   if (!brandModal) return;
+  if (showroomLightbox?.classList.contains('is-open')) closeShowroomLightbox();
   brandModal.classList.remove('is-open');
   brandModal.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('has-brand-modal');
+  syncBodyScrollLock();
   if (lastBrandTrigger) lastBrandTrigger.focus({ preventScroll: true });
 }
 
@@ -311,6 +313,7 @@ brandModalPanel?.addEventListener('click', (event) => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (showroomLightbox?.classList.contains('is-open')) return;
   if (event.key === 'Escape' && brandModal?.classList.contains('is-open')) {
     closeBrandModal();
   }
@@ -386,6 +389,203 @@ whatsappButtons.forEach((button) => {
     }
   });
 });
+
+const showroomWhatsAppButtons = document.querySelectorAll('[data-showroom-whatsapp]');
+const showroomWhatsAppMessage = 'Quiero conocer el showroom';
+
+showroomWhatsAppButtons.forEach((button) => {
+  const showroomWhatsAppUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(showroomWhatsAppMessage)}`;
+  button.setAttribute('href', showroomWhatsAppUrl);
+  button.setAttribute('target', '_blank');
+  button.setAttribute('rel', 'noopener');
+
+  button.addEventListener('click', () => {
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'whatsapp_click', {
+        event_category: 'showroom',
+        event_label: 'showroom_cta'
+      });
+    }
+  });
+});
+
+const showroomCarousel = document.querySelector('[data-showroom-carousel]');
+const showroomItems = showroomCarousel ? Array.from(showroomCarousel.querySelectorAll('.showroom-gallery__item')) : [];
+
+const showroomLightbox = document.querySelector('[data-showroom-lightbox]');
+const showroomLightboxImage = document.querySelector('[data-showroom-lightbox-image]');
+const showroomLightboxClose = document.querySelector('[data-showroom-lightbox-close]');
+const showroomLightboxPrev = document.querySelector('[data-showroom-lightbox-prev]');
+const showroomLightboxNext = document.querySelector('[data-showroom-lightbox-next]');
+const showroomTrack = document.querySelector('.showroom-track');
+let showroomLightboxOpenedFromCarousel = false;
+let lastLightboxTrigger = null;
+let currentLightboxItems = [];
+let currentLightboxIndex = -1;
+
+const pauseShowroomCarousel = () => {
+  showroomTrack?.classList.add('is-paused');
+};
+
+const resumeShowroomCarousel = () => {
+  showroomTrack?.classList.remove('is-paused');
+};
+
+const syncBodyScrollLock = () => {
+  if (!showroomLightbox?.classList.contains('is-open')) {
+    document.body.classList.remove('has-showroom-lightbox');
+  }
+  if (!brandModal?.classList.contains('is-open')) {
+    document.body.classList.remove('has-brand-modal');
+  }
+  if (!projectModal?.classList.contains('is-open') && !sectorModal?.classList.contains('is-open')) {
+    document.body.classList.remove('has-project-modal');
+  }
+  if (!aboutModal?.classList.contains('is-open')) {
+    document.body.classList.remove('has-about-modal');
+  }
+  if (!solutionModal?.classList.contains('is-open')) {
+    document.body.classList.remove('has-solution-modal');
+  }
+};
+
+const getLightboxItemsFromGallery = (trigger) => {
+  if (!trigger) return [];
+
+  if (trigger.closest('.showroom-gallery__item')) {
+    const firstGroup = document.querySelector('.showroom-track__group');
+    const buttons = firstGroup
+      ? Array.from(firstGroup.querySelectorAll('.showroom-gallery__item'))
+      : Array.from(document.querySelectorAll('.showroom-gallery__item'));
+
+    return buttons.map((button) => {
+      const image = button.querySelector('img');
+      return {
+        source: button.getAttribute('data-showroom-image') || image?.currentSrc || image?.getAttribute('src') || '',
+        alt: image?.getAttribute('alt') || 'Imagen ampliada del showroom Casa Glick',
+        trigger: button
+      };
+    }).filter((item) => item.source);
+  }
+
+  const gallery = trigger.closest('.brand-modal__gallery, [data-project-modal-gallery], [data-sector-modal-gallery]');
+  if (gallery) {
+    return Array.from(gallery.querySelectorAll('[data-modal-image], [data-project-modal-image], [data-sector-modal-image]')).map((image) => ({
+      source: image.currentSrc || image.getAttribute('src') || '',
+      alt: image.getAttribute('alt') || 'Imagen ampliada de Casa Glick',
+      trigger: image
+    })).filter((item) => item.source);
+  }
+
+  const image = trigger.matches('img') ? trigger : trigger.querySelector?.('img');
+  const source = trigger.getAttribute?.('data-showroom-image') || image?.currentSrc || image?.getAttribute('src') || '';
+  return source ? [{ source, alt: image?.getAttribute('alt') || 'Imagen ampliada de Casa Glick', trigger }] : [];
+};
+
+const setShowroomLightboxNavState = () => {
+  const canNavigate = currentLightboxItems.length > 1;
+  showroomLightboxPrev?.toggleAttribute('hidden', !canNavigate);
+  showroomLightboxNext?.toggleAttribute('hidden', !canNavigate);
+};
+
+const renderShowroomLightboxItem = (index) => {
+  if (!showroomLightboxImage || !currentLightboxItems.length) return;
+  const normalizedIndex = ((index % currentLightboxItems.length) + currentLightboxItems.length) % currentLightboxItems.length;
+  currentLightboxIndex = normalizedIndex;
+  const item = currentLightboxItems[normalizedIndex];
+  showroomLightboxImage.setAttribute('src', item.source);
+  showroomLightboxImage.setAttribute('alt', item.alt || 'Imagen ampliada de Casa Glick');
+  setShowroomLightboxNavState();
+};
+
+const stepShowroomLightbox = (direction) => {
+  if (currentLightboxItems.length <= 1) return;
+  renderShowroomLightboxItem(currentLightboxIndex + direction);
+};
+
+const openShowroomLightbox = (source, alt = 'Imagen ampliada de Casa Glick', shouldPauseCarousel = false, trigger = null, collectionItems = null, initialIndex = 0) => {
+  if (!showroomLightbox || !showroomLightboxImage || !source) return;
+  if (showroomLightbox.parentElement !== document.body) {
+    document.body.appendChild(showroomLightbox);
+  }
+
+  const derivedItems = Array.isArray(collectionItems) && collectionItems.length ? collectionItems : getLightboxItemsFromGallery(trigger);
+  currentLightboxItems = derivedItems.length ? derivedItems : [{ source, alt, trigger }];
+  showroomLightboxOpenedFromCarousel = Boolean(shouldPauseCarousel);
+  lastLightboxTrigger = trigger || document.activeElement || null;
+  renderShowroomLightboxItem(Math.max(0, initialIndex));
+  showroomLightbox.classList.add('is-open');
+  showroomLightbox.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('has-showroom-lightbox');
+  if (shouldPauseCarousel) pauseShowroomCarousel();
+  requestAnimationFrame(() => {
+    showroomLightboxClose?.focus({ preventScroll: true });
+  });
+};
+
+const closeShowroomLightbox = () => {
+  if (!showroomLightbox || !showroomLightboxImage) return;
+  showroomLightbox.classList.remove('is-open');
+  showroomLightbox.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('has-showroom-lightbox');
+  showroomLightboxImage.removeAttribute('src');
+  currentLightboxItems = [];
+  currentLightboxIndex = -1;
+  setShowroomLightboxNavState();
+  if (showroomLightboxOpenedFromCarousel) resumeShowroomCarousel();
+  showroomLightboxOpenedFromCarousel = false;
+  const shouldRestoreFocus = lastLightboxTrigger && typeof lastLightboxTrigger.focus === 'function' && document.contains(lastLightboxTrigger);
+  if (shouldRestoreFocus) {
+    lastLightboxTrigger.focus({ preventScroll: true });
+  }
+  lastLightboxTrigger = null;
+  syncBodyScrollLock();
+};
+
+showroomItems.forEach((item) => {
+  item.addEventListener('click', () => {
+    const image = item.querySelector('img');
+    const source = item.getAttribute('data-showroom-image') || image?.currentSrc || image?.getAttribute('src');
+    const collection = getLightboxItemsFromGallery(item);
+    const initialIndex = Math.max(0, collection.findIndex((entry) => entry.source === source));
+    openShowroomLightbox(source, image?.getAttribute('alt') || 'Imagen ampliada del showroom Casa Glick', true, item, collection, initialIndex);
+  });
+});
+
+showroomLightboxClose?.addEventListener('click', closeShowroomLightbox);
+showroomLightboxPrev?.addEventListener('click', (event) => { event.stopPropagation(); stepShowroomLightbox(-1); });
+showroomLightboxNext?.addEventListener('click', (event) => { event.stopPropagation(); stepShowroomLightbox(1); });
+
+showroomLightbox?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (event.target === showroomLightbox) closeShowroomLightbox();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (!showroomLightbox?.classList.contains('is-open')) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    closeShowroomLightbox();
+  } else if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    stepShowroomLightbox(-1);
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    stepShowroomLightbox(1);
+  }
+});
+
+document.addEventListener('click', (event) => {
+  const image = event.target.closest?.('[data-modal-image], [data-project-modal-image], [data-sector-modal-image]');
+  if (!image) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const source = image.currentSrc || image.getAttribute('src');
+  const collection = getLightboxItemsFromGallery(image);
+  const initialIndex = Math.max(0, collection.findIndex((entry) => entry.trigger === image || entry.source === source));
+  openShowroomLightbox(source, image.getAttribute('alt') || 'Imagen ampliada de Casa Glick', false, image, collection, initialIndex);
+}, true);
 
 
 // Projects auto scroll: same edge-hover behavior used in Brands.
@@ -587,9 +787,11 @@ function openProjectModal(key, trigger) {
 
 function closeProjectModal() {
   if (!projectModal) return;
+  if (showroomLightbox?.classList.contains('is-open')) closeShowroomLightbox();
   projectModal.classList.remove('is-open');
   projectModal.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('has-project-modal');
+  syncBodyScrollLock();
   if (lastProjectTrigger) lastProjectTrigger.focus({ preventScroll: true });
 }
 
@@ -613,6 +815,7 @@ document.querySelector('[data-project-modal-cta]')?.addEventListener('click', ()
 });
 
 window.addEventListener('keydown', (event) => {
+  if (showroomLightbox?.classList.contains('is-open')) return;
   if (event.key === 'Escape' && projectModal?.classList.contains('is-open')) {
     closeProjectModal();
   }
@@ -787,9 +990,11 @@ function openSectorModal(key, trigger) {
 
 function closeSectorModal() {
   if (!sectorModal) return;
+  if (showroomLightbox?.classList.contains('is-open')) closeShowroomLightbox();
   sectorModal.classList.remove('is-open');
   sectorModal.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('has-project-modal');
+  syncBodyScrollLock();
   if (lastSectorTrigger) lastSectorTrigger.focus({ preventScroll: true });
 }
 
@@ -813,6 +1018,7 @@ document.querySelector('[data-sector-modal-cta]')?.addEventListener('click', () 
 });
 
 window.addEventListener('keydown', (event) => {
+  if (showroomLightbox?.classList.contains('is-open')) return;
   if (event.key === 'Escape' && sectorModal?.classList.contains('is-open')) {
     closeSectorModal();
   }
@@ -900,9 +1106,11 @@ function openAboutModal(trigger) {
 
 function closeAboutModal() {
   if (!aboutModal) return;
+  if (showroomLightbox?.classList.contains('is-open')) closeShowroomLightbox();
   aboutModal.classList.remove('is-open');
   aboutModal.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('has-about-modal');
+  syncBodyScrollLock();
   if (lastAboutTrigger) lastAboutTrigger.focus({ preventScroll: true });
 }
 
@@ -921,6 +1129,7 @@ document.querySelector('[data-about-modal-cta]')?.addEventListener('click', () =
 });
 
 window.addEventListener('keydown', (event) => {
+  if (showroomLightbox?.classList.contains('is-open')) return;
   if (event.key === 'Escape' && aboutModal?.classList.contains('is-open')) {
     closeAboutModal();
   }
@@ -933,7 +1142,7 @@ const solutionModalData = {
     title: 'Hospitality',
     lead: 'Diseñamos espacios pensados para recibir, operar y permanecer memorables. Alineamos concepto, selección de firmas, materiales y acompañamiento para que cada decisión funcione en la experiencia del huésped y en la operación diaria.',
     tags: ['Hoteles boutique', 'Restaurantes', 'Amenidades', 'Villas'],
-    cta: 'Cotizar proyecto hospitality',
+    cta: 'HABLEMOS DE TU PROYECTO',
     result: 'Un espacio con atmósfera clara, materiales adecuados para uso intensivo y una experiencia coherente desde el primer contacto hasta el último detalle.',
     sections: [
       {
@@ -955,7 +1164,7 @@ const solutionModalData = {
     title: 'Residencial',
     lead: 'Creamos hogares con equilibrio entre estética, funcionalidad y vida cotidiana. Cada espacio se desarrolla a partir de cómo se habita, qué se necesita resolver y qué sensación debe permanecer todos los días.',
     tags: ['Casas', 'Departamentos', 'Cocinas y baños', 'Interiores completos'],
-    cta: 'Cotizar proyecto residencial',
+    cta: 'HABLEMOS DE TU PROYECTO',
     result: 'Un hogar coherente, cómodo y personalizado, donde distribución, materiales, mobiliario e iluminación conviven con naturalidad y sentido práctico.',
     sections: [
       {
@@ -1008,7 +1217,7 @@ function setSolutionModalContent(key) {
   }
   if (solutionModalResult) solutionModalResult.textContent = solution.result;
   const solutionModalCta = document.querySelector('[data-solution-modal-cta]');
-  if (solutionModalCta) solutionModalCta.textContent = solution.cta || 'Cotizar proyecto';
+  if (solutionModalCta) solutionModalCta.textContent = solution.cta || 'HABLEMOS DE TU PROYECTO';
   solution.sections.forEach((section, index) => {
     if (solutionModalHeadings[index]) solutionModalHeadings[index].textContent = section.heading;
     if (solutionModalCopies[index]) solutionModalCopies[index].textContent = section.copy;
@@ -1029,9 +1238,11 @@ function openSolutionModal(key, trigger) {
 
 function closeSolutionModal() {
   if (!solutionModal) return;
+  if (showroomLightbox?.classList.contains('is-open')) closeShowroomLightbox();
   solutionModal.classList.remove('is-open');
   solutionModal.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('has-solution-modal');
+  syncBodyScrollLock();
   if (lastSolutionTrigger) lastSolutionTrigger.focus({ preventScroll: true });
 }
 
@@ -1052,6 +1263,7 @@ document.querySelector('[data-solution-modal-cta]')?.addEventListener('click', (
 });
 
 window.addEventListener('keydown', (event) => {
+  if (showroomLightbox?.classList.contains('is-open')) return;
   if (event.key === 'Escape' && solutionModal?.classList.contains('is-open')) {
     closeSolutionModal();
   }
