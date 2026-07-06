@@ -678,11 +678,22 @@ if (mobileProductSheet) {
   let lastFocusedImage = null;
   let activeIndex = 0;
   let touchStartX = 0;
+  let lastImageTapAt = 0;
+
+  const setLightboxZoom = (isZoomed) => {
+    lightbox.classList.toggle('is-zoomed', Boolean(isZoomed));
+    lightboxImage?.setAttribute('aria-label', isZoomed ? 'Doble click para reducir imagen' : 'Doble click para ampliar imagen');
+  };
+
+  const toggleLightboxZoom = () => {
+    setLightboxZoom(!lightbox.classList.contains('is-zoomed'));
+  };
 
   const setLightboxImage = (index) => {
     if (!lightboxImage) return;
     activeIndex = (index + galleryImages.length) % galleryImages.length;
     const image = galleryImages[activeIndex];
+    setLightboxZoom(false);
     lightboxImage.classList.remove('is-loaded');
     window.setTimeout(() => {
       lightboxImage.src = image.currentSrc || image.src;
@@ -701,12 +712,14 @@ if (mobileProductSheet) {
     const index = galleryImages.indexOf(image);
     setLightboxImage(index >= 0 ? index : 0);
     document.body.classList.add('has-product-lightbox');
+    setLightboxZoom(false);
     lightbox.classList.add('is-open');
     window.setTimeout(() => closeButton?.focus(), 80);
   };
 
   const closeLightbox = () => {
     lightbox.classList.remove('is-open');
+    setLightboxZoom(false);
     document.body.classList.remove('has-product-lightbox');
     window.setTimeout(() => {
       if (!lightbox.classList.contains('is-open') && lightboxImage) {
@@ -740,6 +753,16 @@ if (mobileProductSheet) {
     goToImage(1);
   });
 
+  lightboxImage?.addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
+
+  lightboxImage?.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleLightboxZoom();
+  });
+
   lightbox.addEventListener('click', (event) => {
     if (event.target === lightbox) closeLightbox();
   });
@@ -755,7 +778,20 @@ if (mobileProductSheet) {
   lightbox.addEventListener('touchend', (event) => {
     const endX = event.changedTouches[0]?.clientX || touchStartX;
     const deltaX = touchStartX - endX;
-    if (Math.abs(deltaX) > 45) goToImage(deltaX > 0 ? 1 : -1);
+    if (Math.abs(deltaX) > 45) {
+      goToImage(deltaX > 0 ? 1 : -1);
+      return;
+    }
+
+    if (event.target === lightboxImage) {
+      const now = Date.now();
+      if (now - lastImageTapAt < 320) {
+        toggleLightboxZoom();
+        lastImageTapAt = 0;
+      } else {
+        lastImageTapAt = now;
+      }
+    }
   }, { passive: true });
 
   window.addEventListener('keydown', (event) => {
@@ -763,5 +799,19 @@ if (mobileProductSheet) {
     if (event.key === 'Escape') closeLightbox();
     if (event.key === 'ArrowLeft') goToImage(-1);
     if (event.key === 'ArrowRight') goToImage(1);
+  });
+})();
+
+// v51: restore page state when returning with browser Back / bfcache
+(() => {
+  const resetPageTransition = () => {
+    document.body.classList.remove('is-page-leaving');
+    document.documentElement.classList.remove('is-page-leaving');
+  };
+
+  resetPageTransition();
+  window.addEventListener('pageshow', resetPageTransition);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resetPageTransition();
   });
 })();
