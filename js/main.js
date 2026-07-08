@@ -1435,13 +1435,23 @@ function loadCatalogPageFlipScript() {
   return catalogPageFlipScriptPromise;
 }
 
+function ensureCatalogFlipbookMount() {
+  if (!catalogBook || !catalogFlipbookMount) return;
+  if (!catalogFlipbookMount.isConnected) {
+    catalogBook.insertBefore(catalogFlipbookMount, catalogFallbackSpread || null);
+  }
+}
+
 function destroyCatalogPageFlip() {
   if (catalogPageFlip) {
     try { catalogPageFlip.destroy(); } catch (error) { /* no-op */ }
   }
   catalogPageFlip = null;
   catalogUsingPageFlip = false;
+  catalogPageFlipLoading = false;
+  ensureCatalogFlipbookMount();
   catalogFlipbookMount?.replaceChildren();
+  catalogFlipbookMount?.removeAttribute('style');
   catalogViewer?.classList.remove('is-pageflip-ready');
 }
 
@@ -1452,6 +1462,14 @@ function showStaticCatalogCover() {
   updateCatalogStatus(0);
   updateCatalogControls();
   preloadCatalogAround(0);
+}
+
+function confirmCatalogCoverMask() {
+  if (!catalogViewer?.classList.contains('is-open') || isCatalogMobileView()) return;
+  if (catalogCurrentIndex > 0) return;
+  setCatalogCoverView(true);
+  updateCatalogStatus(0);
+  updateCatalogControls();
 }
 
 async function animateCatalogFromCover() {
@@ -1474,9 +1492,10 @@ function getCatalogPageSize() {
   const availableWidth = Math.max(240, stageRect.width - panelPadding);
   const availableHeight = Math.max(320, stageRect.height - panelPadding);
 
+  // v14: visor sin contenedor, catalogo 25% mas grande.
   let pageWidth = mobile
-    ? Math.min(420, availableWidth)
-    : Math.min(390, (availableWidth - 12) / 2);
+    ? Math.min(525, availableWidth)
+    : Math.min(488, (availableWidth - 12) / 2);
   let pageHeight = pageWidth * ratio;
 
   if (pageHeight > availableHeight) {
@@ -1493,6 +1512,7 @@ function getCatalogPageSize() {
 
 async function initCatalogPageFlip(startPage = catalogCurrentIndex, forceFlipbook = false) {
   if (!catalogViewer?.classList.contains('is-open') || !catalogFlipbookMount || !activeCatalog) return false;
+  ensureCatalogFlipbookMount();
   if (catalogPageFlipLoading) return false;
   setCatalogCoverView(false);
   catalogPageFlipLoading = true;
@@ -1507,6 +1527,7 @@ async function initCatalogPageFlip(startPage = catalogCurrentIndex, forceFlipboo
   }
 
   destroyCatalogPageFlip();
+  ensureCatalogFlipbookMount();
 
   const { width, height, mobile } = getCatalogPageSize();
   catalogCurrentIndex = Math.max(0, Math.min(startPage, activeCatalog.pages.length - 1));
@@ -1559,6 +1580,7 @@ async function initCatalogPageFlip(startPage = catalogCurrentIndex, forceFlipboo
     setCatalogCoverView(!isCatalogMobileView() && catalogCurrentIndex <= 0);
     updateCatalogStatus(catalogCurrentIndex);
     updateCatalogControls();
+    requestAnimationFrame(() => requestAnimationFrame(confirmCatalogCoverMask));
   }, 80);
 
   return true;
@@ -1663,6 +1685,7 @@ function openCatalogViewer(catalogId, trigger) {
   lastCatalogTrigger = trigger || null;
   catalogCurrentIndex = 0;
   destroyCatalogPageFlip();
+  ensureCatalogFlipbookMount();
   setCatalogCoverView(false);
   if (catalogTitle) catalogTitle.textContent = activeCatalog.title;
   renderCatalogPages();
@@ -1680,6 +1703,7 @@ function closeCatalogViewer() {
   if (!catalogViewer) return;
   destroyCatalogPageFlip();
   setCatalogCoverView(false);
+  catalogBook?.classList.remove('is-cover-view', 'is-cover-mode');
   catalogViewer.classList.remove('is-open');
   catalogViewer.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('has-catalog-viewer');
