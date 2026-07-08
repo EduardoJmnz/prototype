@@ -78,19 +78,46 @@ slides.forEach((slide) => {
 if (slides.length > 1) startSlider();
 
 
-const revealElements = document.querySelectorAll('.reveal-on-scroll');
+const revealElements = Array.from(document.querySelectorAll('.reveal-on-scroll'));
+let revealFrame = null;
 
-if ('IntersectionObserver' in window && revealElements.length) {
-  const revealObserver = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      entry.target.classList.toggle('is-visible', entry.isIntersecting);
-    });
-  }, {
-    threshold: 0.24,
-    rootMargin: '-12% 0px -18% 0px'
+const setActiveRevealSection = () => {
+  revealFrame = null;
+
+  if (!revealElements.length) return;
+
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+  const viewportFocus = viewportHeight * 0.54;
+  const candidates = revealElements
+    .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+    .filter(({ rect }) => rect.top < viewportHeight * 0.82 && rect.bottom > viewportHeight * 0.16);
+
+  if (!candidates.length) {
+    revealElements.forEach((element) => element.classList.remove('is-visible'));
+    return;
+  }
+
+  const active = candidates.reduce((best, current) => {
+    const bestFocus = best.rect.top + best.rect.height * 0.38;
+    const currentFocus = current.rect.top + current.rect.height * 0.38;
+    return Math.abs(currentFocus - viewportFocus) < Math.abs(bestFocus - viewportFocus) ? current : best;
+  }).element;
+
+  revealElements.forEach((element) => {
+    element.classList.toggle('is-visible', element === active);
   });
+};
 
-  revealElements.forEach((element) => revealObserver.observe(element));
+const requestRevealUpdate = () => {
+  if (revealFrame) return;
+  revealFrame = window.requestAnimationFrame(setActiveRevealSection);
+};
+
+if (revealElements.length) {
+  setActiveRevealSection();
+  window.addEventListener('scroll', requestRevealUpdate, { passive: true });
+  window.addEventListener('resize', requestRevealUpdate);
+  window.addEventListener('load', requestRevealUpdate);
 } else {
   revealElements.forEach((element) => element.classList.add('is-visible'));
 }
@@ -1267,4 +1294,443 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && solutionModal?.classList.contains('is-open')) {
     closeSolutionModal();
   }
+});
+
+
+// Catalog flipbook viewer.
+const catalogViewer = document.querySelector('[data-catalog-viewer]');
+const catalogBook = document.querySelector('[data-catalog-book]');
+const catalogCover = document.querySelector('[data-catalog-cover]');
+const catalogCoverImage = document.querySelector('[data-catalog-cover-image]');
+const catalogFlipbookMount = document.querySelector('[data-catalog-pageflip]');
+const catalogFallbackSpread = document.querySelector('[data-catalog-spread]');
+const catalogLeftPage = document.querySelector('[data-catalog-page-left]');
+const catalogRightPage = document.querySelector('[data-catalog-page-right]');
+const catalogStatus = document.querySelector('[data-catalog-status]');
+const catalogPrevButtons = Array.from(document.querySelectorAll('[data-catalog-prev]'));
+const catalogNextButtons = Array.from(document.querySelectorAll('[data-catalog-next]'));
+const catalogTitle = document.querySelector('#catalog-viewer-title');
+const catalogStage = document.querySelector('[data-catalog-stage]');
+let lastCatalogTrigger = null;
+let catalogCurrentIndex = 0;
+let catalogIsAnimating = false;
+let catalogPageFlip = null;
+let catalogPageFlipLoading = false;
+let catalogPageFlipScriptPromise = null;
+let catalogUsingPageFlip = false;
+let catalogIsCoverMode = false;
+let catalogResizeTimer = null;
+
+const catalogData = {
+  'cg-coleccion-2026': {
+    title: 'CG Colección 2026',
+    pdf: 'assets/catalogs/cg-coleccion-2026/cg-coleccion-2026.pdf',
+    pages: Array.from({ length: 60 }, (_, index) => `assets/catalogs/cg-coleccion-2026/pages/page-${String(index + 1).padStart(2, '0')}.jpg`)
+  }
+};
+let activeCatalog = catalogData['cg-coleccion-2026'];
+
+function isCatalogMobileView() {
+  return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function normalizeCatalogIndex(index) {
+  const pageCount = activeCatalog.pages.length;
+  if (catalogUsingPageFlip) return Math.max(0, Math.min(index, pageCount - 1));
+  if (isCatalogMobileView()) return Math.max(0, Math.min(index, pageCount - 1));
+  if (index <= 0) return 0;
+  const spreadIndex = index % 2 === 0 ? index - 1 : index;
+  return Math.max(0, Math.min(spreadIndex, pageCount - 1));
+}
+
+function setCatalogCoverView(enabled) {
+  catalogIsCoverMode = Boolean(enabled) && !isCatalogMobileView();
+  catalogBook?.classList.toggle('is-cover-view', catalogIsCoverMode);
+  catalogBook?.classList.remove('is-cover-mode');
+  catalogCover?.setAttribute('aria-hidden', 'true');
+  if (catalogFallbackSpread) catalogFallbackSpread.setAttribute('aria-hidden', String(catalogUsingPageFlip));
+}
+
+function updateCatalogControls() {
+  const pageCount = activeCatalog.pages.length;
+  const atStart = catalogCurrentIndex <= 0;
+  const atEnd = catalogCurrentIndex >= pageCount - 1;
+  const nextDisabled = atEnd;
+
+  catalogPrevButtons.forEach((button) => { button.disabled = atStart; });
+  catalogNextButtons.forEach((button) => { button.disabled = nextDisabled; });
+}
+
+function updateCatalogStatus(pageIndex = catalogCurrentIndex) {
+  if (!catalogStatus || !activeCatalog) return;
+  const pageCount = activeCatalog.pages.length;
+  const page = Math.max(0, Math.min(pageIndex, pageCount - 1));
+
+  if (catalogUsingPageFlip || isCatalogMobileView() || page === 0 || page >= pageCount - 1) {
+    catalogStatus.textContent = `Página ${page + 1} de ${pageCount}`;
+    return;
+  }
+
+  const rightIndex = Math.min(page + 1, pageCount - 1);
+  catalogStatus.textContent = `Páginas ${page + 1}-${rightIndex + 1} de ${pageCount}`;
+}
+
+function renderCatalogPages() {
+  if (!catalogLeftPage || !catalogRightPage || !activeCatalog) return;
+  if (catalogUsingPageFlip) {
+    updateCatalogStatus();
+    updateCatalogControls();
+    return;
+  }
+
+  catalogCurrentIndex = normalizeCatalogIndex(catalogCurrentIndex);
+  const pageCount = activeCatalog.pages.length;
+  const mobile = isCatalogMobileView();
+  const leftIndex = mobile ? catalogCurrentIndex : catalogCurrentIndex === 0 ? -1 : catalogCurrentIndex;
+  const rightIndex = mobile ? catalogCurrentIndex : catalogCurrentIndex === 0 ? 0 : catalogCurrentIndex + 1;
+
+  if (leftIndex >= 0 && activeCatalog.pages[leftIndex]) {
+    catalogLeftPage.src = activeCatalog.pages[leftIndex];
+    catalogLeftPage.alt = `${activeCatalog.title}, página ${leftIndex + 1}`;
+  } else {
+    catalogLeftPage.removeAttribute('src');
+    catalogLeftPage.alt = '';
+  }
+
+  if (rightIndex >= 0 && activeCatalog.pages[rightIndex]) {
+    catalogRightPage.src = activeCatalog.pages[rightIndex];
+    catalogRightPage.alt = `${activeCatalog.title}, página ${rightIndex + 1}`;
+  } else {
+    catalogRightPage.removeAttribute('src');
+    catalogRightPage.alt = '';
+  }
+
+  updateCatalogStatus();
+  updateCatalogControls();
+}
+
+function preloadCatalogAround(index) {
+  if (!activeCatalog) return;
+  const candidates = [index - 2, index - 1, index, index + 1, index + 2, index + 3]
+    .filter((pageIndex) => pageIndex >= 0 && pageIndex < activeCatalog.pages.length);
+  candidates.forEach((pageIndex) => {
+    const img = new Image();
+    img.src = activeCatalog.pages[pageIndex];
+  });
+}
+
+function loadCatalogPageFlipScript() {
+  if (window.St?.PageFlip) return Promise.resolve(true);
+  if (catalogPageFlipScriptPromise) return catalogPageFlipScriptPromise;
+
+  catalogPageFlipScriptPromise = new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.min.js';
+    script.async = true;
+    script.onload = () => resolve(Boolean(window.St?.PageFlip));
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+
+  return catalogPageFlipScriptPromise;
+}
+
+function destroyCatalogPageFlip() {
+  if (catalogPageFlip) {
+    try { catalogPageFlip.destroy(); } catch (error) { /* no-op */ }
+  }
+  catalogPageFlip = null;
+  catalogUsingPageFlip = false;
+  catalogFlipbookMount?.replaceChildren();
+  catalogViewer?.classList.remove('is-pageflip-ready');
+}
+
+function showStaticCatalogCover() {
+  if (!activeCatalog) return;
+  catalogCurrentIndex = 0;
+  setCatalogCoverView(true);
+  updateCatalogStatus(0);
+  updateCatalogControls();
+  preloadCatalogAround(0);
+}
+
+async function animateCatalogFromCover() {
+  if (catalogPageFlipLoading) return;
+  if (!catalogPageFlip) {
+    const ready = await initCatalogPageFlip(0, true);
+    if (!ready) return;
+  }
+  setCatalogCoverView(false);
+  requestAnimationFrame(() => {
+    try { catalogPageFlip?.flipNext(); } catch (error) { /* no-op */ }
+  });
+}
+
+function getCatalogPageSize() {
+  const stageRect = catalogStage?.getBoundingClientRect() || { width: 860, height: 620 };
+  const panelPadding = isCatalogMobileView() ? 24 : 18;
+  const ratio = 1.4142;
+  const mobile = isCatalogMobileView();
+  const availableWidth = Math.max(240, stageRect.width - panelPadding);
+  const availableHeight = Math.max(320, stageRect.height - panelPadding);
+
+  let pageWidth = mobile
+    ? Math.min(420, availableWidth)
+    : Math.min(390, (availableWidth - 12) / 2);
+  let pageHeight = pageWidth * ratio;
+
+  if (pageHeight > availableHeight) {
+    pageHeight = availableHeight;
+    pageWidth = pageHeight / ratio;
+  }
+
+  return {
+    width: Math.max(220, Math.round(pageWidth)),
+    height: Math.max(312, Math.round(pageHeight)),
+    mobile
+  };
+}
+
+async function initCatalogPageFlip(startPage = catalogCurrentIndex, forceFlipbook = false) {
+  if (!catalogViewer?.classList.contains('is-open') || !catalogFlipbookMount || !activeCatalog) return false;
+  if (catalogPageFlipLoading) return false;
+  setCatalogCoverView(false);
+  catalogPageFlipLoading = true;
+
+  const hasLibrary = await loadCatalogPageFlipScript();
+  catalogPageFlipLoading = false;
+  if (!hasLibrary || !window.St?.PageFlip || !catalogViewer.classList.contains('is-open')) {
+    catalogViewer?.classList.remove('is-pageflip-ready');
+    catalogUsingPageFlip = false;
+    renderCatalogPages();
+    return false;
+  }
+
+  destroyCatalogPageFlip();
+
+  const { width, height, mobile } = getCatalogPageSize();
+  catalogCurrentIndex = Math.max(0, Math.min(startPage, activeCatalog.pages.length - 1));
+
+  catalogBook?.style.setProperty('--catalog-single-page-width', `${width}px`);
+  catalogBook?.style.setProperty('--catalog-single-page-height', `${height}px`);
+  catalogFlipbookMount.style.width = mobile ? `${width}px` : `${width * 2}px`;
+  catalogFlipbookMount.style.height = `${height}px`;
+
+  catalogPageFlip = new window.St.PageFlip(catalogFlipbookMount, {
+    width,
+    height,
+    size: 'fixed',
+    minWidth: width,
+    maxWidth: width,
+    minHeight: height,
+    maxHeight: height,
+    showCover: true,
+    usePortrait: mobile,
+    drawShadow: true,
+    flippingTime: 840,
+    maxShadowOpacity: 0.34,
+    startPage: catalogCurrentIndex,
+    mobileScrollSupport: false,
+    useMouseEvents: true,
+    autoSize: false,
+    clickEventForward: false,
+    swipeDistance: 30,
+    showPageCorners: true,
+    disableFlipByClick: false
+  });
+
+  catalogPageFlip.loadFromImages(activeCatalog.pages);
+  catalogPageFlip.on('flip', (event) => {
+    catalogCurrentIndex = Number(event.data) || 0;
+    const shouldShowCoverOnly = !isCatalogMobileView() && catalogCurrentIndex <= 0;
+    window.setTimeout(() => {
+      setCatalogCoverView(shouldShowCoverOnly);
+      updateCatalogStatus(catalogCurrentIndex);
+      updateCatalogControls();
+      preloadCatalogAround(catalogCurrentIndex);
+    }, shouldShowCoverOnly ? 60 : 0);
+  });
+
+  catalogUsingPageFlip = true;
+  catalogViewer.classList.add('is-pageflip-ready');
+  catalogFallbackSpread?.setAttribute('aria-hidden', 'true');
+  window.setTimeout(() => {
+    try { catalogPageFlip?.turnToPage(catalogCurrentIndex); } catch (error) { /* no-op */ }
+    setCatalogCoverView(!isCatalogMobileView() && catalogCurrentIndex <= 0);
+    updateCatalogStatus(catalogCurrentIndex);
+    updateCatalogControls();
+  }, 80);
+
+  return true;
+}
+
+function playCatalogPageTurn(direction) {
+  if (!catalogBook || !activeCatalog) return;
+
+  const mobile = isCatalogMobileView();
+  const pageCount = activeCatalog.pages.length;
+  let turningIndex;
+
+  if (mobile) {
+    turningIndex = catalogCurrentIndex;
+  } else if (direction > 0) {
+    turningIndex = catalogCurrentIndex === 0 ? 0 : Math.min(catalogCurrentIndex + 1, pageCount - 1);
+  } else {
+    turningIndex = catalogCurrentIndex;
+  }
+
+  const pageSrc = activeCatalog.pages[turningIndex];
+  if (!pageSrc) return;
+
+  let backIndex;
+  if (mobile) {
+    backIndex = normalizeCatalogIndex(catalogCurrentIndex + direction);
+  } else if (direction > 0) {
+    backIndex = catalogCurrentIndex === 0 ? 1 : Math.min(catalogCurrentIndex + 2, pageCount - 1);
+  } else {
+    backIndex = Math.max(catalogCurrentIndex - 1, 0);
+  }
+  const backPageSrc = activeCatalog.pages[backIndex] || pageSrc;
+
+  catalogBook.querySelectorAll('.catalog-page-turner').forEach((node) => node.remove());
+
+  const turner = document.createElement('div');
+  turner.className = `catalog-page-turner ${direction > 0 ? 'catalog-page-turner--next' : 'catalog-page-turner--prev'}`;
+
+  const frontFace = document.createElement('div');
+  frontFace.className = 'catalog-page-turner__face catalog-page-turner__face--front';
+  const frontImg = document.createElement('img');
+  frontImg.src = pageSrc;
+  frontImg.alt = '';
+  frontFace.appendChild(frontImg);
+
+  const backFace = document.createElement('div');
+  backFace.className = 'catalog-page-turner__face catalog-page-turner__face--back';
+  const backImg = document.createElement('img');
+  backImg.src = backPageSrc;
+  backImg.alt = '';
+  backFace.appendChild(backImg);
+
+  turner.appendChild(frontFace);
+  turner.appendChild(backFace);
+
+  const spread = catalogBook.querySelector('[data-catalog-spread]');
+  spread?.appendChild(turner);
+
+  window.setTimeout(() => {
+    turner.remove();
+  }, 780);
+}
+
+function turnCatalog(direction) {
+  if (!activeCatalog) return;
+
+  if (catalogIsCoverMode) {
+    if (direction > 0) animateCatalogFromCover();
+    return;
+  }
+
+  if (catalogUsingPageFlip && catalogPageFlip) {
+    if (direction > 0) catalogPageFlip.flipNext();
+    else catalogPageFlip.flipPrev();
+    return;
+  }
+
+  if (catalogIsAnimating) return;
+
+  const step = isCatalogMobileView() ? 1 : 2;
+  const nextIndex = normalizeCatalogIndex(catalogCurrentIndex + direction * step);
+  if (nextIndex === catalogCurrentIndex) return;
+
+  catalogIsAnimating = true;
+  playCatalogPageTurn(direction);
+
+  window.setTimeout(() => {
+    catalogCurrentIndex = nextIndex;
+    renderCatalogPages();
+    preloadCatalogAround(catalogCurrentIndex);
+  }, 560);
+
+  window.setTimeout(() => {
+    catalogBook?.querySelectorAll('.catalog-page-turner').forEach((node) => node.remove());
+    catalogIsAnimating = false;
+  }, 780);
+}
+
+function openCatalogViewer(catalogId, trigger) {
+  if (!catalogViewer) return;
+  activeCatalog = catalogData[catalogId] || catalogData['cg-coleccion-2026'];
+  lastCatalogTrigger = trigger || null;
+  catalogCurrentIndex = 0;
+  destroyCatalogPageFlip();
+  setCatalogCoverView(false);
+  if (catalogTitle) catalogTitle.textContent = activeCatalog.title;
+  renderCatalogPages();
+  preloadCatalogAround(0);
+  catalogViewer.classList.add('is-open');
+  catalogViewer.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('has-catalog-viewer');
+  requestAnimationFrame(() => {
+    catalogViewer.querySelector('[data-catalog-close]')?.focus({ preventScroll: true });
+    initCatalogPageFlip(0, true);
+  });
+}
+
+function closeCatalogViewer() {
+  if (!catalogViewer) return;
+  destroyCatalogPageFlip();
+  setCatalogCoverView(false);
+  catalogViewer.classList.remove('is-open');
+  catalogViewer.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('has-catalog-viewer');
+  if (lastCatalogTrigger) lastCatalogTrigger.focus({ preventScroll: true });
+}
+
+document.querySelectorAll('[data-catalog-open]').forEach((trigger) => {
+  trigger.addEventListener('click', (event) => {
+    event.preventDefault();
+    openCatalogViewer(trigger.dataset.catalogOpen, trigger);
+  });
+});
+
+catalogViewer?.querySelectorAll('[data-catalog-close]').forEach((button) => {
+  button.addEventListener('click', closeCatalogViewer);
+});
+
+catalogPrevButtons.forEach((button) => button.addEventListener('click', () => turnCatalog(-1)));
+catalogNextButtons.forEach((button) => button.addEventListener('click', () => turnCatalog(1)));
+
+window.addEventListener('keydown', (event) => {
+  if (!catalogViewer?.classList.contains('is-open')) return;
+  if (event.key === 'Escape') closeCatalogViewer();
+  if (event.key === 'ArrowLeft') turnCatalog(-1);
+  if (event.key === 'ArrowRight') turnCatalog(1);
+});
+
+let catalogTouchStartX = null;
+catalogStage?.addEventListener('touchstart', (event) => {
+  if (catalogUsingPageFlip) return;
+  catalogTouchStartX = event.touches[0]?.clientX ?? null;
+}, { passive: true });
+
+catalogStage?.addEventListener('touchend', (event) => {
+  if (catalogUsingPageFlip) return;
+  if (catalogTouchStartX === null) return;
+  const endX = event.changedTouches[0]?.clientX ?? catalogTouchStartX;
+  const delta = endX - catalogTouchStartX;
+  if (Math.abs(delta) > 42) turnCatalog(delta < 0 ? 1 : -1);
+  catalogTouchStartX = null;
+}, { passive: true });
+
+window.addEventListener('resize', () => {
+  if (!catalogViewer?.classList.contains('is-open')) return;
+  window.clearTimeout(catalogResizeTimer);
+  catalogResizeTimer = window.setTimeout(() => {
+    const current = catalogCurrentIndex;
+    if (catalogUsingPageFlip || catalogIsCoverMode) {
+      initCatalogPageFlip(current, true);
+    } else {
+      renderCatalogPages();
+    }
+  }, 180);
 });

@@ -27,9 +27,9 @@
     <a href="#nosotros">Nosotros</a>
     <a href="#soluciones">Soluciones</a>
     <a href="#marcas">Marcas</a>
+    <a href="#catalogos">Catálogos</a>
     <a href="#proyectos">Proyectos</a>
     <a href="#sectores">Sectores</a>
-    <a href="#catalogos">Catálogos</a>
     <a href="#contacto">Contacto</a>
   </nav>
 
@@ -201,6 +201,27 @@
           <button type="button" aria-label="Ver marca 3"></button>
           <button type="button" aria-label="Ver marca 4"></button>
         </div>
+      </div>
+    </section>
+
+
+    <section class="catalogs-section reveal-on-scroll" id="catalogos" aria-label="Catálogos Casa Glick">
+      <div class="catalogs-shell">
+        <div class="catalogs-copy">
+          <p class="section-eyebrow">Catálogos</p>
+          <h2>Explora nuestras colecciones</h2>
+          <p>
+            Seleccionamos los mejores productos para inspirar tus proyectos.
+          </p>
+        </div>
+
+        <a class="catalog-feature" href="assets/catalogs/cg-coleccion-2026/cg-coleccion-2026.pdf" aria-label="Abrir visor de CG Colección 2026" data-catalog-open="cg-coleccion-2026">
+          <figure class="catalog-feature__cover">
+            <img src="assets/catalogs/cg-coleccion-2026/pages/page-01.jpg" alt="Portada del catálogo CG Colección 2026">
+            <figcaption>Casa Glick</figcaption>
+          </figure>
+          <p>CG Colección 2026</p>
+        </a>
       </div>
     </section>
 
@@ -664,7 +685,45 @@
     </article>
   </div>
 
+  <div class="catalog-viewer" data-catalog-viewer aria-hidden="true">
+    <div class="catalog-viewer__backdrop" data-catalog-close></div>
+    <article class="catalog-viewer__panel" role="dialog" aria-modal="true" aria-labelledby="catalog-viewer-title">
+      <header class="catalog-viewer__header">
+        <div>
+          <p class="catalog-viewer__eyebrow">Catálogo digital</p>
+          <h2 id="catalog-viewer-title">CG Colección 2026</h2>
+        </div>
+        <div class="catalog-viewer__actions">
+          <button class="catalog-viewer__close" type="button" aria-label="Cerrar visor" data-catalog-close>×</button>
+        </div>
+      </header>
 
+      <div class="catalog-viewer__stage" data-catalog-stage>
+        <button class="catalog-viewer__nav catalog-viewer__nav--prev" type="button" aria-label="Página anterior" data-catalog-prev>‹</button>
+
+        <div class="catalog-book" data-catalog-book aria-live="polite">
+          <div class="catalog-book__cover" data-catalog-cover aria-hidden="true">
+            <img src="" alt="" data-catalog-cover-image>
+          </div>
+          <div class="catalog-pageflip" data-catalog-pageflip></div>
+          <div class="catalog-book__spread" data-catalog-spread>
+            <figure class="catalog-book__page catalog-book__page--left">
+              <img src="" alt="" data-catalog-page-left>
+            </figure>
+            <figure class="catalog-book__page catalog-book__page--right">
+              <img src="" alt="" data-catalog-page-right>
+            </figure>
+          </div>
+        </div>
+
+        <button class="catalog-viewer__nav catalog-viewer__nav--next" type="button" aria-label="Página siguiente" data-catalog-next>›</button>
+      </div>
+
+      <footer class="catalog-viewer__footer">
+        <span data-catalog-status>Página 1 de 60</span>
+      </footer>
+    </article>
+  </div>
 
 
   <a class="whatsapp-float" href="https://wa.me/5210000000000?text=Hola%2C%20vi%20la%20p%C3%A1gina%20de%20Casa%20Glick%20y%20me%20gustar%C3%ADa%20hablar%20con%20un%20agente." target="_blank" rel="noopener" aria-label="Hablar con un agente por WhatsApp" data-whatsapp-button>
