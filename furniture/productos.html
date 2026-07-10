@@ -174,30 +174,77 @@
         <button class="products-filter__item" type="button" data-filter="iluminacion">Iluminación</button>
       </nav>
 
+      <div class="products-picker" aria-label="Filtrar productos por categoría en móvil">
+        <div class="products-picker__control" data-products-custom-picker>
+          <select id="products-category-picker" class="products-picker__select" aria-hidden="true" tabindex="-1">
+            <option value="todo">Todo</option>
+            <option value="poltronas">Poltronas</option>
+            <option value="sillas">Sillas</option>
+            <option value="mesas">Mesas</option>
+            <option value="sofas">Sofás</option>
+            <option value="decoracion">Decoración</option>
+            <option value="iluminacion">Iluminación</option>
+          </select>
+          <button class="products-picker__button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="products-category-menu">
+            <span class="products-picker__value">Todo</span>
+            <span class="products-picker__chevron" aria-hidden="true"></span>
+          </button>
+          <div class="products-picker__menu" id="products-category-menu" role="listbox" tabindex="-1">
+            <button class="products-picker__option is-selected" type="button" role="option" aria-selected="true" data-value="todo">Todo</button>
+            <button class="products-picker__option" type="button" role="option" aria-selected="false" data-value="poltronas">Poltronas</button>
+            <button class="products-picker__option" type="button" role="option" aria-selected="false" data-value="sillas">Sillas</button>
+            <button class="products-picker__option" type="button" role="option" aria-selected="false" data-value="mesas">Mesas</button>
+            <button class="products-picker__option" type="button" role="option" aria-selected="false" data-value="sofas">Sofás</button>
+            <button class="products-picker__option" type="button" role="option" aria-selected="false" data-value="decoracion">Decoración</button>
+            <button class="products-picker__option" type="button" role="option" aria-selected="false" data-value="iluminacion">Iluminación</button>
+          </div>
+        </div>
+      </div>
+
       <div class="products-list" aria-live="polite">
         <article class="product-card" data-category="poltronas">
           <a class="product-card__link" href="producto.html?product=poltrona-model" aria-label="Ver detalle de poltrona Model">
             <img src="assets/category-poltrona.webp" alt="Poltrona de piel café Casa Glick" loading="lazy" />
+            <span class="product-card__meta">
+              <strong>HT-12</strong>
+              <small>Poltronas</small>
+            </span>
           </a>
         </article>
         <article class="product-card" data-category="mesas">
           <a class="product-card__link" href="producto.html?product=mesa-lateral" aria-label="Ver detalle de mesa lateral">
             <img src="assets/category-mesas.webp" alt="Mesa lateral con cubierta de mármol Casa Glick" loading="lazy" />
+            <span class="product-card__meta">
+              <strong>Mesa lateral</strong>
+              <small>Mesas</small>
+            </span>
           </a>
         </article>
         <article class="product-card" data-category="sofas">
           <a class="product-card__link" href="producto.html?product=sofa-cafe" aria-label="Ver detalle de sofá contemporáneo">
             <img src="assets/category-sofas.webp" alt="Sofá contemporáneo de piel café Casa Glick" loading="lazy" />
+            <span class="product-card__meta">
+              <strong>Sofá café</strong>
+              <small>Sofás</small>
+            </span>
           </a>
         </article>
         <article class="product-card" data-category="decoracion">
           <a class="product-card__link" href="producto.html?product=arte-tonos-calidos" aria-label="Ver detalle de decoración">
             <img src="assets/category-decoracion.webp" alt="Cuadro decorativo en tonos cálidos Casa Glick" loading="lazy" />
+            <span class="product-card__meta">
+              <strong>Arte tonos cálidos</strong>
+              <small>Decoración</small>
+            </span>
           </a>
         </article>
         <article class="product-card" data-category="sillas">
           <a class="product-card__link" href="producto.html?product=silla-tapizada" aria-label="Ver detalle de silla tapizada">
             <img src="assets/category-sillas.webp" alt="Silla tapizada Casa Glick" loading="lazy" />
+            <span class="product-card__meta">
+              <strong>Silla tapizada</strong>
+              <small>Sillas</small>
+            </span>
           </a>
         </article>
       </div>

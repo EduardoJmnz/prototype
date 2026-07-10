@@ -63,12 +63,36 @@ const updateSectionMotion = () => {
       // Salida progresiva. El hero debe irse antes para que no se vea dentro del bloque de Productos.
       const passed = -rect.top;
       const isHero = section.classList.contains('hero');
-      const exitStart = vh * (isHero ? 0.08 : 0.34);
-      const exitEnd = vh * (isHero ? 0.58 : 0.96);
-      const progress = clamp((passed - exitStart) / (exitEnd - exitStart), 0, 1);
-      const eased = easeInOutCubic(progress);
-      opacity = 1 - eased;
-      y = (isHero ? -190 : -128) * eased;
+      const isLifestyle = section.classList.contains('lifestyle');
+
+      // En móvil, la sección de inspiración no debe ocultarse antes de tiempo.
+      // Se empieza a desvanecer solo cuando el bloque Showroom realmente entra al viewport.
+      if (isLifestyle && window.innerWidth <= 760) {
+        const showroomSection = document.querySelector('.showroom');
+        if (showroomSection) {
+          const showroomRect = showroomSection.getBoundingClientRect();
+          const enterStart = vh * 0.95;
+          const enterEnd = vh * 0.22;
+          const progress = clamp((enterStart - showroomRect.top) / (enterStart - enterEnd), 0, 1);
+          const eased = easeInOutCubic(progress);
+          opacity = 1 - eased;
+          y = -48 * eased;
+        } else {
+          const exitStart = vh * 0.92;
+          const exitEnd = vh * 1.25;
+          const progress = clamp((passed - exitStart) / (exitEnd - exitStart), 0, 1);
+          const eased = easeInOutCubic(progress);
+          opacity = 1 - eased;
+          y = -48 * eased;
+        }
+      } else {
+        const exitStart = vh * (isHero ? 0.08 : (isLifestyle ? 0.68 : 0.34));
+        const exitEnd = vh * (isHero ? 0.58 : (isLifestyle ? 1.10 : 0.96));
+        const progress = clamp((passed - exitStart) / (exitEnd - exitStart), 0, 1);
+        const eased = easeInOutCubic(progress);
+        opacity = 1 - eased;
+        y = (isHero ? -190 : (isLifestyle ? -64 : -128)) * eased;
+      }
     } else {
       opacity = 0;
       y = -128;
@@ -302,6 +326,7 @@ lifestyleTracks.forEach((track) => {
 
 // Products listing page filters
 const productFilterButtons = document.querySelectorAll('.products-filter__item');
+const productCategoryPicker = document.querySelector('.products-picker__select');
 const productCards = document.querySelectorAll('.product-card');
 const normalizeFilter = (value) => {
   const clean = (value || 'todo').toLowerCase().trim();
@@ -319,6 +344,10 @@ const applyProductFilter = (filter, updateUrl = true) => {
   productFilterButtons.forEach((button) => {
     button.classList.toggle('is-active', button.dataset.filter === activeFilter);
   });
+
+  if (productCategoryPicker && productCategoryPicker.value !== activeFilter) {
+    productCategoryPicker.value = activeFilter;
+  }
 
   productCards.forEach((card) => {
     const show = activeFilter === 'todo' || card.dataset.category === activeFilter;
@@ -340,6 +369,10 @@ if (productFilterButtons.length && productCards.length) {
   productFilterButtons.forEach((button) => {
     button.addEventListener('click', () => applyProductFilter(button.dataset.filter));
   });
+
+  if (productCategoryPicker) {
+    productCategoryPicker.addEventListener('change', () => applyProductFilter(productCategoryPicker.value));
+  }
 }
 
 // Product detail page data
@@ -502,6 +535,13 @@ if (mobileProductSheet) {
   let lastScrollY = window.scrollY || 0;
   let touchStartY = 0;
   let ignoreUntil = 0;
+  let currentSheetState = 'peek';
+  let lastSheetHideAt = 0;
+  let touchLastY = 0;
+  let touchAccumulatedDelta = 0;
+  let suppressScrollPeekUntil = 0;
+  let lastTouchScrollIntent = '';
+  let lastTouchScrollIntentAt = 0;
 
   // v17: on mobile the sheet must be a direct child of body.
   // This prevents fixed positioning from being trapped at the bottom of the gallery/layout flow.
@@ -525,6 +565,8 @@ if (mobileProductSheet) {
   };
 
   const setSheetState = (state) => {
+    currentSheetState = state === 'expanded' ? 'expanded' : state === 'hidden' ? 'hidden' : 'peek';
+    if (currentSheetState === 'hidden') lastSheetHideAt = Date.now();
     syncSheetMount();
     if (!isProductMobile()) {
       mobileProductSheet.classList.remove('is-peeking', 'is-expanded', 'is-hidden-mobile-sheet');
@@ -576,32 +618,118 @@ if (mobileProductSheet) {
     });
   });
 
-  window.addEventListener('wheel', (event) => {
-    if (!isProductMobile() || isProductLightboxOpen() || Date.now() < ignoreUntil || mobileProductSheet.classList.contains('is-expanded')) return;
-    if (event.deltaY > 6) setSheetState('hidden');
-    if (event.deltaY < -6) setSheetState('peek');
-  }, { passive: true });
+  const canMoveSheet = () => (
+    isProductMobile()
+    && !isProductLightboxOpen()
+    && Date.now() >= ignoreUntil
+    && !mobileProductSheet.classList.contains('is-expanded')
+    && !document.body.classList.contains('menu-open')
+  );
+
+  const requestSheetForScrollDirection = (direction, force = false) => {
+    if (!canMoveSheet()) return;
+
+    if (direction === 'down') {
+      if (currentSheetState !== 'hidden' || force) {
+        setSheetState('hidden');
+      }
+      return;
+    }
+
+    if (direction === 'up') {
+      // Show again only after a real upward gesture, not from the small layout bounce
+      // created right after the sheet hides.
+      if (!force && Date.now() < suppressScrollPeekUntil) return;
+      if (currentSheetState !== 'peek' || force) {
+        setSheetState('peek');
+      }
+    }
+  };
+
+  const resetScrollIntent = () => {
+    touchStartY = 0;
+    touchLastY = 0;
+    touchAccumulatedDelta = 0;
+  };
+
+  const hasRecentTouchIntent = (intent) => (
+    lastTouchScrollIntent === intent
+    && Date.now() - lastTouchScrollIntentAt < 520
+  );
+
+  let scrollDownIntent = 0;
+  let scrollUpIntent = 0;
+  let sheetStateLockedUntil = 0;
 
   window.addEventListener('touchstart', (event) => {
     if (!isProductMobile() || isProductLightboxOpen()) return;
     touchStartY = event.touches[0]?.clientY || 0;
+    touchLastY = touchStartY;
+    touchAccumulatedDelta = 0;
   }, { passive: true });
 
   window.addEventListener('touchmove', (event) => {
-    if (!isProductMobile() || isProductLightboxOpen() || Date.now() < ignoreUntil || mobileProductSheet.classList.contains('is-expanded')) return;
-    const currentY = event.touches[0]?.clientY || touchStartY;
-    const delta = touchStartY - currentY;
-    if (delta > 18) setSheetState('hidden');
-    if (delta < -18) setSheetState('peek');
+    if (!isProductMobile() || isProductLightboxOpen()) return;
+    const currentY = event.touches[0]?.clientY || 0;
+    if (!touchLastY) {
+      touchLastY = currentY;
+      return;
+    }
+
+    const fingerDelta = currentY - touchLastY;
+    touchLastY = currentY;
+
+    if (Math.abs(fingerDelta) < 3) return;
+
+    // Finger moves up = page goes down. Finger moves down = page goes up.
+    lastTouchScrollIntent = fingerDelta < 0 ? 'down' : 'up';
+    lastTouchScrollIntentAt = Date.now();
   }, { passive: true });
 
+  window.addEventListener('touchend', resetScrollIntent, { passive: true });
+  window.addEventListener('touchcancel', resetScrollIntent, { passive: true });
+
   window.addEventListener('scroll', () => {
-    if (!isProductMobile() || isProductLightboxOpen() || Date.now() < ignoreUntil || mobileProductSheet.classList.contains('is-expanded')) return;
-    const current = window.scrollY || 0;
+    const current = Math.max(0, window.scrollY || 0);
+
+    if (!canMoveSheet()) {
+      lastScrollY = current;
+      scrollDownIntent = 0;
+      scrollUpIntent = 0;
+      return;
+    }
+
     const diff = current - lastScrollY;
     lastScrollY = current;
-    if (diff > 8) setSheetState('hidden');
-    if (diff < -8) setSheetState('peek');
+
+    if (Math.abs(diff) < 1.5) return;
+
+    if (diff > 0) {
+      scrollDownIntent += diff;
+      scrollUpIntent = 0;
+
+      if (scrollDownIntent >= 8 && currentSheetState !== 'hidden') {
+        setSheetState('hidden');
+        sheetStateLockedUntil = Date.now() + 360;
+        scrollDownIntent = 0;
+      }
+      return;
+    }
+
+    if (diff < 0) {
+      scrollUpIntent += Math.abs(diff);
+      scrollDownIntent = 0;
+
+      if (
+        currentSheetState === 'hidden'
+        && scrollUpIntent >= 18
+        && Date.now() >= sheetStateLockedUntil
+        && hasRecentTouchIntent('up')
+      ) {
+        setSheetState('peek');
+        scrollUpIntent = 0;
+      }
+    }
   }, { passive: true });
 
   window.addEventListener('keydown', (event) => {
@@ -660,7 +788,6 @@ if (mobileProductSheet) {
   lightbox.setAttribute('aria-modal', 'true');
   lightbox.setAttribute('aria-label', 'Imagen ampliada del producto');
   lightbox.innerHTML = `
-    <button class="product-image-lightbox__close" type="button" aria-label="Cerrar imagen ampliada"></button>
     <button class="product-image-lightbox__nav product-image-lightbox__nav--prev" type="button" aria-label="Imagen anterior">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 5 L8 12 L15 19" /></svg>
     </button>
@@ -714,7 +841,7 @@ if (mobileProductSheet) {
     document.body.classList.add('has-product-lightbox');
     setLightboxZoom(false);
     lightbox.classList.add('is-open');
-    window.setTimeout(() => closeButton?.focus(), 80);
+
   };
 
   const closeLightbox = () => {
@@ -814,4 +941,310 @@ if (mobileProductSheet) {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') resetPageTransition();
   });
+})();
+
+
+// v58: Showroom moving strip + image lightbox
+(() => {
+  const gallery = document.querySelector('.showroom__gallery');
+  const track = gallery?.querySelector('.showroom__gallery-track');
+  if (!gallery || !track) return;
+
+  const originalItems = Array.from(track.querySelectorAll('.showroom__item'));
+  if (!originalItems.length) return;
+
+  originalItems.forEach((item) => {
+    const clone = item.cloneNode(true);
+    clone.classList.add('showroom__gallery-copy');
+    clone.setAttribute('aria-hidden', 'true');
+    track.appendChild(clone);
+  });
+
+  const measureDistance = () => {
+    const first = originalItems[0];
+    const last = originalItems[originalItems.length - 1];
+    if (!first || !last) return;
+    const styles = window.getComputedStyle(track);
+    const gap = parseFloat(styles.columnGap || styles.gap || '0') || 0;
+    const distance = (last.offsetLeft + last.offsetWidth - first.offsetLeft) + gap;
+    track.style.setProperty('--showroom-track-distance', `${Math.max(distance, 1)}px`);
+  };
+
+  const scheduleMeasure = () => requestAnimationFrame(() => requestAnimationFrame(measureDistance));
+  scheduleMeasure();
+  window.addEventListener('load', scheduleMeasure);
+  window.addEventListener('resize', scheduleMeasure);
+
+  track.addEventListener('pointerenter', (event) => {
+    if (event.target instanceof Element && event.target.closest('.showroom__item')) {
+      track.classList.add('is-paused');
+    }
+  }, true);
+
+  track.addEventListener('pointerleave', () => {
+    track.classList.remove('is-paused');
+  });
+
+  const lightbox = document.createElement('div');
+  lightbox.className = 'showroom-lightbox';
+  lightbox.setAttribute('role', 'dialog');
+  lightbox.setAttribute('aria-modal', 'true');
+  lightbox.setAttribute('aria-label', 'Imagen ampliada del showroom');
+  lightbox.innerHTML = `
+    <button class="showroom-lightbox__close" type="button" aria-label="Cerrar imagen ampliada"></button>
+    <img class="showroom-lightbox__image" alt="Imagen ampliada del showroom" />
+  `;
+  document.body.appendChild(lightbox);
+
+  const lightboxImage = lightbox.querySelector('.showroom-lightbox__image');
+  const closeButton = lightbox.querySelector('.showroom-lightbox__close');
+
+  const openLightbox = (img) => {
+    if (!img || !lightboxImage) return;
+    track.classList.add('is-paused');
+    document.body.classList.add('has-showroom-lightbox');
+    lightboxImage.classList.remove('is-loaded');
+    lightboxImage.src = img.currentSrc || img.src;
+    lightboxImage.alt = img.alt || 'Imagen ampliada del showroom';
+    requestAnimationFrame(() => {
+      lightbox.classList.add('is-open');
+      window.setTimeout(() => lightboxImage.classList.add('is-loaded'), 40);
+    });
+  };
+
+  const closeLightbox = () => {
+    lightbox.classList.remove('is-open');
+    document.body.classList.remove('has-showroom-lightbox');
+    track.classList.remove('is-paused');
+    window.setTimeout(() => {
+      if (!lightbox.classList.contains('is-open') && lightboxImage) {
+        lightboxImage.removeAttribute('src');
+        lightboxImage.classList.remove('is-loaded');
+      }
+    }, 360);
+  };
+
+  track.addEventListener('click', (event) => {
+    const img = event.target instanceof Element ? event.target.closest('.showroom__item')?.querySelector('img') : null;
+    if (img) openLightbox(img);
+  });
+
+  closeButton?.addEventListener('click', closeLightbox);
+  lightbox.addEventListener('click', (event) => {
+    if (event.target === lightbox) closeLightbox();
+  });
+  window.addEventListener('keydown', (event) => {
+    if (!lightbox.classList.contains('is-open')) return;
+    if (event.key === 'Escape') closeLightbox();
+  });
+})();
+
+
+// v70: robust mobile picker filter fallback
+(() => {
+  const picker = document.querySelector('#products-category-picker');
+  const cards = Array.from(document.querySelectorAll('.product-card'));
+  const filterButtons = Array.from(document.querySelectorAll('.products-filter__item'));
+  if (!picker || !cards.length) return;
+
+  const normalize = (value) => {
+    const clean = (value || 'todo').toLowerCase().trim();
+    if (clean === 'all') return 'todo';
+    if (clean === 'sofás') return 'sofas';
+    if (clean === 'decoración') return 'decoracion';
+    if (clean === 'iluminación') return 'iluminacion';
+    return clean;
+  };
+
+  const filterProducts = (value, updateUrl = true) => {
+    const active = normalize(value);
+    cards.forEach((card) => {
+      const category = normalize(card.dataset.category);
+      const show = active === 'todo' || category === active;
+      card.classList.toggle('is-hidden', !show);
+      card.hidden = !show;
+    });
+    filterButtons.forEach((button) => {
+      button.classList.toggle('is-active', normalize(button.dataset.filter) === active);
+    });
+    if (picker.value !== active) picker.value = active;
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('filter', active);
+      window.history.replaceState({}, '', url);
+    }
+  };
+
+  picker.addEventListener('change', () => filterProducts(picker.value));
+  picker.addEventListener('input', () => filterProducts(picker.value));
+
+  filterButtons.forEach((button) => {
+    button.addEventListener('click', () => filterProducts(button.dataset.filter));
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  filterProducts(params.get('filter') || params.get('category') || picker.value || 'todo', false);
+})();
+
+
+// v71: final robust product picker filter - runs after every previous layout override
+(() => {
+  const picker = document.getElementById('products-category-picker');
+  const list = document.querySelector('.products-list');
+  if (!picker || !list) return;
+
+  const normalize = (value) => {
+    const clean = String(value || 'todo').toLowerCase().trim();
+    if (clean === 'all') return 'todo';
+    if (clean === 'sofás') return 'sofas';
+    if (clean === 'decoración') return 'decoracion';
+    if (clean === 'iluminación') return 'iluminacion';
+    return clean;
+  };
+
+  const getCards = () => Array.from(list.querySelectorAll('.product-card'));
+
+  const apply = (value, updateUrl = true) => {
+    const active = normalize(value || picker.value || 'todo');
+    getCards().forEach((card) => {
+      const category = normalize(card.getAttribute('data-category'));
+      const show = active === 'todo' || category === active;
+      card.classList.toggle('is-hidden', !show);
+      if (show) {
+        card.removeAttribute('hidden');
+        card.style.removeProperty('display');
+      } else {
+        card.setAttribute('hidden', '');
+        card.style.setProperty('display', 'none', 'important');
+      }
+    });
+
+    document.querySelectorAll('.products-filter__item').forEach((button) => {
+      button.classList.toggle('is-active', normalize(button.dataset.filter) === active);
+    });
+
+    if (picker.value !== active) picker.value = active;
+
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('filter', active);
+      window.history.replaceState({}, '', url);
+    }
+  };
+
+  picker.onchange = () => apply(picker.value);
+  picker.oninput = () => apply(picker.value);
+  picker.addEventListener('change', () => requestAnimationFrame(() => apply(picker.value)), true);
+  picker.addEventListener('input', () => requestAnimationFrame(() => apply(picker.value)), true);
+
+  document.querySelectorAll('.products-filter__item').forEach((button) => {
+    button.addEventListener('click', () => requestAnimationFrame(() => apply(button.dataset.filter)), true);
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  requestAnimationFrame(() => apply(params.get('filter') || params.get('category') || picker.value || 'todo', false));
+})();
+
+
+// v72: premium custom mobile products picker with robust filtering
+(() => {
+  const pickerWrap = document.querySelector('.products-picker');
+  const control = document.querySelector('[data-products-custom-picker]');
+  const select = document.getElementById('products-category-picker');
+  const button = document.querySelector('.products-picker__button');
+  const valueLabel = document.querySelector('.products-picker__value');
+  const menu = document.querySelector('.products-picker__menu');
+  const options = Array.from(document.querySelectorAll('.products-picker__option'));
+  const list = document.querySelector('.products-list');
+  if (!pickerWrap || !control || !select || !button || !valueLabel || !menu || !options.length || !list) return;
+
+  const normalize = (value) => {
+    const clean = String(value || 'todo').toLowerCase().trim();
+    if (clean === 'all') return 'todo';
+    if (clean === 'sofás') return 'sofas';
+    if (clean === 'decoración') return 'decoracion';
+    if (clean === 'iluminación') return 'iluminacion';
+    return clean;
+  };
+
+  const labelFor = (value) => {
+    const option = options.find((item) => normalize(item.dataset.value) === normalize(value));
+    return option ? option.textContent.trim() : 'Todo';
+  };
+
+  const closeMenu = () => {
+    pickerWrap.classList.remove('is-open');
+    button.setAttribute('aria-expanded', 'false');
+  };
+
+  const openMenu = () => {
+    pickerWrap.classList.add('is-open');
+    button.setAttribute('aria-expanded', 'true');
+  };
+
+  const setFilter = (value, updateUrl = true) => {
+    const active = normalize(value);
+    const cards = Array.from(list.querySelectorAll('.product-card'));
+
+    cards.forEach((card) => {
+      const category = normalize(card.getAttribute('data-category'));
+      const show = active === 'todo' || category === active;
+      card.classList.toggle('is-hidden', !show);
+      if (show) {
+        card.removeAttribute('hidden');
+        card.style.removeProperty('display');
+      } else {
+        card.setAttribute('hidden', '');
+        card.style.setProperty('display', 'none', 'important');
+      }
+    });
+
+    document.querySelectorAll('.products-filter__item').forEach((filterButton) => {
+      filterButton.classList.toggle('is-active', normalize(filterButton.dataset.filter) === active);
+    });
+
+    if (select.value !== active) select.value = active;
+    valueLabel.textContent = labelFor(active);
+
+    options.forEach((option) => {
+      const selected = normalize(option.dataset.value) === active;
+      option.classList.toggle('is-selected', selected);
+      option.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('filter', active);
+      window.history.replaceState({}, '', url);
+    }
+  };
+
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    pickerWrap.classList.contains('is-open') ? closeMenu() : openMenu();
+  });
+
+  options.forEach((option) => {
+    option.addEventListener('click', () => {
+      setFilter(option.dataset.value);
+      closeMenu();
+    });
+  });
+
+  select.addEventListener('change', () => setFilter(select.value));
+
+  document.querySelectorAll('.products-filter__item').forEach((filterButton) => {
+    filterButton.addEventListener('click', () => setFilter(filterButton.dataset.filter));
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!control.contains(event.target)) closeMenu();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenu();
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  requestAnimationFrame(() => setFilter(params.get('filter') || params.get('category') || select.value || 'todo', false));
 })();
